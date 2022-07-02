@@ -1,6 +1,7 @@
 import requests, json, os, warnings
 from functools import cached_property
 import pandas as pd
+from typing import List, Union
 
 APP_IDS_URL = "https://api.steampowered.com/ISteamApps/GetAppList/v2/"
 
@@ -38,3 +39,33 @@ class AppIDReader:
         for appid, name in appids_to_names.items():
             rows.append((appid, name))
         return pd.DataFrame(rows, columns=('appid', 'name'))
+
+
+class ReviewCounter:
+    def __init__(self, dat):
+        self.dat = dat
+
+    @cached_property
+    def counts_by_game_dat(self):
+        return self._count_by_game(['name'])
+
+    @cached_property
+    def positive_negative_ratios_dat(self):
+        counts_dat = self._count_by_game(['name', 'voted_up'])
+        return (
+            counts_dat
+            .merge(counts_dat, on='name', suffixes=('_pos', '_neg'))
+            .query("voted_up_pos != voted_up_neg")
+            .query("voted_up_pos")
+            .assign(rr=lambda d: d['prop_pos'] / d['prop_neg'])
+            .sort_values('rr', ascending=False))
+
+    def _count_by_game(self, groupers: Union[str, List[str]]) -> pd.DataFrame:
+        return (
+            self.dat
+            .groupby(groupers)
+            .size()
+            .reset_index(name='reviews')
+            .assign(total_reviews=lambda d: d['reviews'].sum(),
+                    prop=lambda d: d['reviews'] / d['total_reviews'])
+            .sort_values('prop', ascending=False))

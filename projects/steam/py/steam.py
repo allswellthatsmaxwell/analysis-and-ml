@@ -59,12 +59,12 @@ class ReviewCounter:
 
     @cached_property
     def positive_negative_ratios_dat(self):
-        counts_dat = self._count_by_game(['name', 'voted_up'])
+        counts_dat = self._count_by_game(['name', 'rating'])
         return (
             counts_dat
             .merge(counts_dat, on='name', suffixes=('_pos', '_neg'))
-            .query("voted_up_pos != voted_up_neg")
-            .query("voted_up_pos")
+            .query("rating_pos != rating_neg")
+            .query("rating_pos")
             .assign(rr=lambda d: d['prop_pos'] / d['prop_neg'])
             .sort_values('rr', ascending=False))
 
@@ -80,7 +80,7 @@ class ReviewCounter:
 
 
 class Data:
-
+    @cached_property
     def user_game_matrix(self):
         ug = UserGame(self.dat)
         ug.create_matrix()
@@ -96,7 +96,9 @@ class ReviewData(Data):
         self.trn_files = data_files[:5]
         
     def load(self):
-        self.dat = pd.concat([pd.read_csv(fpath) for fpath in self.trn_files])
+        self.dat = (
+            pd.concat([pd.read_csv(fpath) for fpath in self.trn_files])
+            .rename({'voted_up': 'rating', 'playtime_at_review': 'hours_played'}, axis=1))
 
         appid_reader = AppIDReader()
 
@@ -108,6 +110,14 @@ class ReviewData(Data):
 class HoursPlayedData(Data):
     def __init__(self) -> None:
         super().__init__()
+
+    def load(self):
+        fpath = '../data/steam-200k.csv'
+        self.dat = pd.read_csv(fpath, header=None)
+        self.dat.columns = ['steamid', 'name', 'record_type', 'rating', 'empty']
+        self.dat.drop('empty', axis=1, inplace=True)
+        self.dat = self.dat.query("record_type == 'play'")
+
 
 class UserGame:
     def __init__(self, dat: pd.DataFrame):
@@ -141,7 +151,7 @@ class UserGame:
         user_index = [self.user_mapper[i] for i in self.dat['steamid']]
         item_index = [self.game_mapper[i] for i in self.dat['name']]
 
-        self.X = csr_matrix((self.dat["voted_up"], (user_index, item_index)), shape=(M, N))
+        self.X = csr_matrix((self.dat["rating"], (user_index, item_index)), shape=(M, N))
 
     @cached_property
     def sparsity(self):
